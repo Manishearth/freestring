@@ -1,0 +1,8 @@
+[package]
+authors = ["Manish Goregaokar <manishsmail@gmail.com>"]
+name = "freestring"
+version = "0.1.0"
+
+[dependencies]
+libc = "0.2.22"
+memchr = "1.0.1"
