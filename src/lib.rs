@@ -48,7 +48,7 @@ impl FreeString {
     /// Construct from some bytes which we know contain no null. This
     /// function will append a null terminator whilst constructing.
     ///
-    /// Invariants:
+    /// Safety preconditions:
     ///
     /// - No byte can be null
     pub unsafe fn from_bytes_unchecked(bytes: &[u8]) -> Self {
@@ -73,15 +73,12 @@ impl FreeString {
         // shove in a null terminator
         slice[total_len - 1] = 0;
 
-        FreeString {
-            inner: buf,
-            len: total_len,
-        }
+        Self::from_raw_parts(buf, total_len)
     }
 
     /// Construct from some bytes which we know are null terminated.
     ///
-    /// Invariants:
+    /// Safety preconditions:
     ///
     /// - Last byte must be null
     /// - No other byte can be null
@@ -100,16 +97,38 @@ impl FreeString {
                                  /* len */ bytes.len());
 
 
-        FreeString {
-            inner: buf,
-            len: bytes.len(),
-        }
+        Self::from_raw_parts(buf, bytes.len())
     }
 
     /// Get a raw pointer to the inner string. Suitable for giving to C
     #[inline]
     pub fn as_raw(&self) -> *const u8 {
         self.inner
+    }
+
+    #[inline]
+    /// Construct a FreeString from a pointer obtained from C
+    ///
+    /// Safety preconditions:
+    ///
+    /// - ptr must be a valid malloc-allocated pointer to a null-terminated C String
+    pub unsafe fn from_raw(ptr: *mut libc::c_char) -> Self {
+        let len = libc::strlen(ptr) + 1; // Including the NUL byte
+        Self::from_raw_parts(ptr as *mut _, len)
+    }
+
+    #[inline]
+    /// Constructs string from raw pointer and length. Length *includes* null byte.
+    ///
+    /// Safety preconditions:
+    ///
+    /// - ptr must be a valid malloc-allocated pointer to a null-terminated C String
+    /// - len must be the length of that string including the null byte
+    pub unsafe fn from_raw_parts(ptr: *const u8, len: usize) -> Self {
+        FreeString {
+            inner: ptr,
+            len: len
+        }
     }
 
     #[inline]
