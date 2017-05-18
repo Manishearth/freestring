@@ -9,9 +9,8 @@ use std::{ffi, mem, ops, ptr, slice};
 /// always have been allocated via `malloc`,
 /// and always will be freed via `free()`.
 pub struct FreeString {
-    // We use &'static instead of a raw pointer to get
-    // the NonZero guarantee
-    inner: &'static [u8],
+    inner: *const u8,
+    len: usize,
 }
 
 pub struct NulError(usize);
@@ -57,18 +56,26 @@ impl FreeString {
         // size_of_val on &&[u8] or something
         let size = mem::size_of_val::<[u8]>(bytes);
         let buf = libc::malloc(size + mem::size_of::<u8>()) as *mut u8;
+
+        if buf.is_null() {
+            panic!("Out of memory")
+        }
+
+        let total_len = bytes.len().checked_add(1).expect("Overflow while allocating");
+
         ptr::copy_nonoverlapping(/* src */ bytes.as_ptr(),
                                  /* dest */ buf,
                                  /* len */ bytes.len());
 
 
-        let slice = slice::from_raw_parts_mut(buf, bytes.len() + 1);
+        let slice = slice::from_raw_parts_mut(buf, total_len);
 
         // shove in a null terminator
-        slice[bytes.len() + 1] = 0;
+        slice[total_len - 1] = 0;
 
         FreeString {
-            inner: slice,
+            inner: buf,
+            len: total_len,
         }
     }
 
@@ -83,27 +90,37 @@ impl FreeString {
         // size_of_val on &&[u8] or something
         let size = mem::size_of_val::<[u8]>(bytes);
         let buf = libc::malloc(size) as *mut u8;
+
+        if buf.is_null() {
+            panic!("Out of memory")
+        }
+
         ptr::copy_nonoverlapping(/* src */ bytes.as_ptr(),
                                  /* dest */ buf,
                                  /* len */ bytes.len());
 
 
-        let slice = slice::from_raw_parts_mut(buf, bytes.len());
-
         FreeString {
-            inner: slice,
+            inner: buf,
+            len: bytes.len(),
         }
     }
 
     /// Get a raw pointer to the inner string. Suitable for giving to C
+    #[inline]
     pub fn as_raw(&self) -> *const u8 {
-        self.inner.as_ptr()
+        self.inner
+    }
+
+    #[inline]
+    pub fn as_slice(&self) -> &[u8] {
+        unsafe { slice::from_raw_parts(self.inner, self.len) }
     }
 }
 
 impl Drop for FreeString {
     fn drop(&mut self) {
-        unsafe { libc::free(self.inner.as_ptr() as *mut u8 as *mut _) }
+        unsafe { libc::free(self.inner as *mut u8 as *mut _) }
     }
 }
 
@@ -114,6 +131,6 @@ impl ops::Deref for FreeString {
     // will return a &'static ffi::CStr because the input
     // was 'static, and we don't want that to happen
     fn deref<'a>(&'a self) -> &'a ffi::CStr {
-        unsafe { ffi::CStr::from_bytes_with_nul_unchecked(self.inner) }
+        unsafe { ffi::CStr::from_bytes_with_nul_unchecked(self.as_slice()) }
     }
 }
